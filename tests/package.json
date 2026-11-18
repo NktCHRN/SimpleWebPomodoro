@@ -1,0 +1,15 @@
+{
+  "name": "web-pomodoro-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "End-to-end tests for the web-pomodoro app (Playwright + installed Microsoft Edge)",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report",
+    "serve": "node server.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1"
+  }
+}

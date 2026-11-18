@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pomodoro Timer</title>
+  <link rel="icon" type="image/svg+xml" href="logo.svg">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#d9534f">
+  <meta name="apple-mobile-web-app-title" content="Pomodoro">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="mode-pomodoro">
+  <main class="app">
+    <h1><img src="logo.svg" alt="" class="logo" width="36" height="36">Pomodoro</h1>
+
+    <div class="modes" role="tablist" aria-label="Current step">
+      <span class="mode-label" data-mode="pomodoro">Pomodoro</span>
+      <span class="mode-label" data-mode="short">Short break</span>
+      <span class="mode-label" data-mode="long">Long break</span>
+    </div>
+
+    <div class="timer" id="timer" aria-live="polite">25:00</div>
+
+    <div class="cycle">
+      <div class="cycle-text" id="cycleText">1 of 4</div>
+      <div class="dots" id="dots"></div>
+      <button id="skipBtn" class="skip" title="Skip to the next step">Skip ⏭</button>
+    </div>
+    <div class="session-total" id="sessionTotal">Pomodoros this session: 0</div>
+
+    <div class="controls">
+      <button id="startStopBtn" class="primary">Start</button>
+    </div>
+    <div class="controls secondary-controls">
+      <button id="resetCurrentBtn">Reset current</button>
+      <button id="resetAllBtn">Reset session</button>
+    </div>
+
+    <details class="settings" id="settings">
+      <summary>Settings</summary>
+      <form id="settingsForm">
+        <label>
+          Pomodoro (min)
+          <input type="number" id="pomodoroInput" min="1" max="180" step="1" required>
+        </label>
+        <label>
+          Short break (min)
+          <input type="number" id="shortInput" min="1" max="60" step="1" required>
+        </label>
+        <label>
+          Long break (min)
+          <input type="number" id="longInput" min="1" max="120" step="1" required>
+        </label>
+        <label>
+          Pomodoros before long break
+          <input type="number" id="cyclesInput" min="1" max="12" step="1" required>
+        </label>
+        <label class="switch-row" title="A new set (after a long break) always waits for Start">
+          Auto-start next step
+          <input type="checkbox" id="autoStartInput" role="switch">
+          <span class="switch" aria-hidden="true"></span>
+        </label>
+        <div class="settings-row">
+          <label for="soundInput">Sound</label>
+          <span class="sound-control">
+            <select id="soundInput"></select>
+            <button type="button" id="soundPreviewBtn" class="small" title="Play the sound" aria-label="Play the sound">▶</button>
+          </span>
+        </div>
+        <label class="volume-row" title="Plays the sound once when you let go">
+          Volume
+          <span class="volume-control">
+            <input type="range" id="volumeInput" min="0" max="100" step="5">
+            <output id="volumeValue" for="volumeInput">40%</output>
+          </span>
+        </label>
+        <label class="switch-row" title="Stops the screen from turning off while the timer runs">
+          Keep screen on
+          <input type="checkbox" id="keepAwakeInput" role="switch">
+          <span class="switch" aria-hidden="true"></span>
+        </label>
+        <div class="settings-actions">
+          <button type="submit" class="primary small">Save</button>
+          <button type="button" id="defaultsBtn" class="small">Defaults</button>
+        </div>
+        <p class="hint">Changes to the current step apply right away if its timer hasn't started yet; otherwise from the next step.</p>
+      </form>
+    </details>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
