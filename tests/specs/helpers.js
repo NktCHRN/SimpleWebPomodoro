@@ -54,10 +54,13 @@ function installMocks(cfg) {
 
   // Sound: rec.sounds gets one entry per sound played (the app reads
   // currentTime once per sound), holding its notes as { f, type, peak }.
+  // cfg.audio === 'suspended': like a real browser before any interaction,
+  // a new context starts suspended until resume() is called.
+  rec.audioResumes = 0;
   class FakeAudioContext {
     constructor() {
       rec.audioContexts++;
-      this.state = 'running';
+      this.state = cfg.audio === 'suspended' ? 'suspended' : 'running';
       this.destination = {};
     }
     get currentTime() {
@@ -90,7 +93,11 @@ function installMocks(cfg) {
       };
       return node;
     }
-    resume() { return Promise.resolve(); }
+    resume() {
+      rec.audioResumes++;
+      this.state = 'running';
+      return Promise.resolve();
+    }
   }
   window.AudioContext = FakeAudioContext;
   window.webkitAudioContext = FakeAudioContext;
@@ -124,6 +131,14 @@ function installMocks(cfg) {
     Object.defineProperty(Navigator.prototype, 'wakeLock', { get: () => wakeLock, configurable: true });
   }
 
+  // cfg.neverClicked: behave like a tab the user never interacted with
+  // (Playwright pages otherwise report user activation).
+  if (cfg.neverClicked && navigator.userActivation) {
+    Object.defineProperty(navigator, 'userActivation', {
+      value: { hasBeenActive: false, isActive: false }, configurable: true
+    });
+  }
+
   // Tab visibility, controllable from tests
   window.__vis = 'visible';
   Object.defineProperty(Document.prototype, 'visibilityState', { get: () => window.__vis, configurable: true });
@@ -155,7 +170,14 @@ async function seed(page, { settings = {}, state = {} } = {}) {
 
 const open = (page) => page.goto('/index.html');
 const stored = (page) => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
-const rec = (page) => page.evaluate(() => window.__rec);
+// Alerts go through a Web Lock (one alert across tabs), which the browser
+// grants asynchronously. A lock query is answered after earlier requests have
+// been handled, so awaiting it first means pending alerts have fired.
+const rec = (page) => page.evaluate(async () => {
+  if (navigator.locks) await navigator.locks.query();
+  await Promise.resolve();
+  return window.__rec;
+});
 
 // Simulate switching away from / back to the tab. Like a real browser, hiding
 // the page drops any held wake lock.
@@ -191,6 +213,6 @@ const ui = (page) => ({
 });
 
 module.exports = {
-  test, expect, seed, open, stored, rec, setVisibility, ui,
+  test, expect, seed, open, stored, rec, setVisibility, ui, installMocks,
   APP_DIR, KEY, T0, SEC, MIN, HOUR, DEFAULT_SETTINGS, DEFAULT_STATE
 };

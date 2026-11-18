@@ -10,9 +10,11 @@ A simple Pomodoro timer that runs entirely in the browser. Plain HTML, CSS and J
 - **Sound and notification** at the end of every step. 8 generated sounds to choose from (Marimba by default) with a volume slider — no audio files.
 - **Auto-start next step** (optional). A new set always waits for Start.
 - **Keep screen on** while the timer runs (Screen Wake Lock API), so phones don't sleep mid-pomodoro.
-- **Remembers everything** in `localStorage`: settings, current step, time left, progress. A running timer keeps going across reloads.
-- **Keeps to the clock**: if the page was paused or closed, it catches up from when each step actually ended.
+- **Remembers everything** in `localStorage`: settings, current step, time left, progress.
+- **Pauses when closed**: closing the last tab (or reloading) freezes the timer at that moment; opening the site again shows the time that was left and waits for Start. That first click also allows the browser to play sound. If another tab is still open, the timer keeps running there and new tabs follow it.
+- **Keeps to the clock** while open: if the tab was paused in the background (e.g. phone locked), it catches up from when each step actually ended.
 - **12-hour reset**: if the timer has been stopped for more than 12 hours, the session starts over automatically.
+- **Several tabs, one timer**: tabs stay in sync (start, stop, skip, settings), and each step end is announced only once.
 - **Installable on phones** (web app manifest, icons) with notifications through a service worker.
 - Asks before closing the tab while the timer is running.
 
@@ -86,11 +88,13 @@ How they work:
 | `timer.spec.js` | Start/Stop, countdown, title, Reset current, Reset session |
 | `cycles.spec.js` | step transitions, long break, counters, dots, Skip, Auto-start |
 | `settings.spec.js` | lengths, set size, validation, Defaults, switches, volume |
-| `persistence.spec.js` | reload, last active time, catch-up, 12-hour reset |
+| `persistence.spec.js` | reload, reopening paused, last active time, catch-up, 12-hour reset |
 | `alerts.spec.js` | notification permission, sounds and the sound picker, service worker |
+| `duplicates.spec.js` | exactly one alert per step end; several tabs staying in sync |
 | `wakelock.spec.js` | Keep screen on |
 | `page.spec.js` | leave-page confirmation, colours, head metadata, icons, sizes |
 | `layout.spec.js` | centring and control placement (desktop + phone viewport) |
+| `touch.spec.js` | tapping on a phone: Start, sound unlock, Skip, Settings (phone only) |
 | `sw-unit.spec.js` | `sw.js` handlers, run in Node |
 
 ## License

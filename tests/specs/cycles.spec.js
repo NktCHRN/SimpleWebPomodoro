@@ -214,7 +214,9 @@ test.describe('Auto-start next step', () => {
     await expect(u.startStop).toHaveText('Start');
     await page.clock.runFor(1 * MIN);
     await expect(u.timer).toHaveText('25:00');
-    expect((await rec(page)).notes[0]).toMatchObject({ body: 'Break is over — time to focus.' });
+    expect((await rec(page)).notes[0]).toMatchObject({
+      title: 'Long break finished!', body: 'Set complete. Press Start to begin the next set.'
+    });
   });
 
   test('chains several steps until the end of the set', async ({ page }) => {
@@ -228,7 +230,7 @@ test.describe('Auto-start next step', () => {
     await expect(u.startStop).toHaveText('Start');
     await expect(u.total).toHaveText('Pomodoros this session: 2');
     expect((await rec(page)).notes.map((n) => n.body)).toEqual([
-      'Short break started.', 'Pomodoro started.', 'Long break started.', 'Break is over — time to focus.'
+      'Short break started.', 'Pomodoro started.', 'Long break started.', 'Set complete. Press Start to begin the next set.'
     ]);
   });
 

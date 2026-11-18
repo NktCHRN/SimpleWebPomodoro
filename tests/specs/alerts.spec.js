@@ -45,6 +45,49 @@ test.describe('Notification permission and sound', () => {
     expect(r.sounds).toHaveLength(2);
   });
 
+  test.describe('sound unlocks on any interaction, not just Start', () => {
+    test.use({ mockConfig: { permission: 'granted', wakeLock: 'ok', audio: 'suspended' } });
+
+    test('clicking anywhere on the page prepares the sound', async ({ page }) => {
+      await open(page);
+      expect((await rec(page)).audioContexts).toBe(0);
+      await ui(page).timer.click();
+      await expect.poll(async () => (await rec(page)).audioContexts).toBe(1);
+      expect(await page.evaluate(() => window.__rec.audioResumes)).toBeGreaterThanOrEqual(1);
+    });
+
+    test('a key press prepares the sound too', async ({ page }) => {
+      await open(page);
+      await page.keyboard.press('Shift');
+      await expect.poll(async () => (await rec(page)).audioContexts).toBe(1);
+    });
+
+    test('after a reload mid-step, the Start click that continues also unlocks the sound', async ({ page }) => {
+      await open(page);
+      await ui(page).startStop.click();
+      await page.clock.runFor(1 * MIN);
+      await page.reload();
+      expect((await rec(page)).audioContexts).toBe(0);
+      await expect(ui(page).startStop).toHaveText('Start');
+      await ui(page).startStop.click();
+      await page.clock.runFor(24 * MIN + 1 * SEC);
+      const r = await rec(page);
+      expect(r.audioContexts).toBe(1);
+      expect(r.sounds).toHaveLength(1);
+    });
+
+    test('once unlocked, further clicks do nothing extra', async ({ page }) => {
+      await open(page);
+      await ui(page).timer.click();
+      await expect.poll(async () => (await rec(page)).audioContexts).toBe(1);
+      const resumes = await page.evaluate(() => window.__rec.audioResumes);
+      await ui(page).timer.click();
+      await page.locator('h1').click();
+      expect((await rec(page)).audioContexts).toBe(1);
+      expect(await page.evaluate(() => window.__rec.audioResumes)).toBe(resumes);
+    });
+  });
+
   test('default sound is Marimba (C–E–G–C) at 40% volume', async ({ page }) => {
     await open(page);
     await ui(page).startStop.click();

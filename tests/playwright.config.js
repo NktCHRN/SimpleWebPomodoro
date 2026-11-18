@@ -24,9 +24,9 @@ module.exports = defineConfig({
       use: { viewport: { width: 1280, height: 800 } }
     },
     {
-      // Layout checks again at phone size.
+      // Layout checks again at phone size, plus touch-only checks.
       name: 'phone',
-      testMatch: /layout\.spec\.js/,
+      testMatch: /(layout|touch)\.spec\.js/,
       use: { ...devices['Pixel 7'], channel: 'msedge' }
     }
   ]

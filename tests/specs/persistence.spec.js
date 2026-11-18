@@ -3,14 +3,18 @@
 const { test, expect, seed, open, stored, rec, setVisibility, ui, T0, SEC, MIN, HOUR } = require('./helpers');
 
 test.describe('Persistence across reloads', () => {
-  test('a running timer keeps running after reload', async ({ page }) => {
+  test('reloading a running timer pauses it where it was and waits for Start', async ({ page }) => {
     await open(page);
     const u = ui(page);
     await u.startStop.click();
     await page.clock.runFor(1 * MIN);
     await page.reload();
-    await expect(u.startStop).toHaveText('Stop');
+    await expect(u.startStop).toHaveText('Start');
     await expect(u.timer).toHaveText('24:00');
+    await page.clock.runFor(1 * MIN);
+    await expect(u.timer).toHaveText('24:00'); // not counting
+    expect((await stored(page)).state).toMatchObject({ running: false, remaining: 1440, endAt: null });
+    await u.startStop.click();
     await page.clock.runFor(1 * SEC);
     await expect(u.timer).toHaveText('23:59');
   });
@@ -79,59 +83,93 @@ test.describe('Last active time', () => {
   });
 });
 
-test.describe('Catch-up after the page was closed', () => {
-  const ended = (minutesAgo) => ({ running: true, endAt: T0 - minutesAgo * MIN, remaining: 1500, lastActive: T0 - 30 * MIN });
+test.describe('Reopening after all tabs were closed', () => {
+  // Closed `closedMinAgo` minutes ago while running, with `leftMin` minutes
+  // left at that moment (lastActive = the save made when closing).
+  const closed = (closedMinAgo, leftMin) => ({
+    running: true, remaining: 1500,
+    lastActive: T0 - closedMinAgo * MIN,
+    endAt: T0 - closedMinAgo * MIN + leftMin * MIN
+  });
 
-  test('auto-start on, 15 min late → 2nd pomodoro with 15:00 left, silently', async ({ page }) => {
-    await seed(page, { settings: { autoStart: true }, state: ended(15) });
+  test('shows the time left at closing, paused, silently', async ({ page }) => {
+    await seed(page, { state: closed(60, 20) });
     await open(page);
     const u = ui(page);
+    await expect(u.startStop).toHaveText('Start');
+    await expect(u.timer).toHaveText('20:00');
     await expect(u.body).toHaveClass('mode-pomodoro');
-    await expect(u.startStop).toHaveText('Stop');
-    await expect(u.timer).toHaveText('15:00');
-    await expect(u.cycleText).toHaveText('2 of 4');
-    await expect(u.total).toHaveText('Pomodoros this session: 1');
     const r = await rec(page);
     expect(r.sounds).toHaveLength(0);
     expect(r.notes).toHaveLength(0);
   });
 
-  test('auto-start off, 15 min late → break waiting; last stop = when the pomodoro ended', async ({ page }) => {
-    await seed(page, { state: ended(15) });
+  test('saves the paused state; last stop = when it was closed', async ({ page }) => {
+    await seed(page, { state: closed(60, 20) });
+    await open(page);
+    await page.clock.runFor(1 * SEC); // past the "is another tab open?" wait
+    expect((await stored(page)).state).toMatchObject({
+      running: false, endAt: null, remaining: 1200, lastActive: T0 - 60 * MIN
+    });
+  });
+
+  test('Start continues from the paused time', async ({ page }) => {
+    await seed(page, { state: closed(60, 20) });
+    await open(page);
+    const u = ui(page);
+    await u.startStop.click();
+    await page.clock.runFor(1 * MIN);
+    await expect(u.timer).toHaveText('19:00');
+  });
+
+  test('a step that had already ended before closing is moved past (auto-start off)', async ({ page }) => {
+    // e.g. a frozen phone tab: the step ended 30 min before the page was closed
+    await seed(page, { state: { running: true, remaining: 1500, lastActive: T0 - 60 * MIN, endAt: T0 - 90 * MIN } });
     await open(page);
     const u = ui(page);
     await expect(u.body).toHaveClass('mode-short');
-    await expect(u.startStop).toHaveText('Start');
     await expect(u.timer).toHaveText('05:00');
-    expect((await stored(page)).state.lastActive).toBe(T0 - 15 * MIN);
+    await expect(u.startStop).toHaveText('Start');
+    await expect(u.total).toHaveText('Pomodoros this session: 1');
+    expect((await rec(page)).sounds).toHaveLength(0);
   });
 
-  test('auto-start on, 3 h late → whole set replayed, waits at the new set', async ({ page }) => {
-    await seed(page, { settings: { autoStart: true }, state: ended(180) });
+  test('with auto-start, the schedule is replayed up to closing, then paused', async ({ page }) => {
+    // P ended 80 min ago, S ran 80→75, next P ran from 75 min ago; closed 60 min ago
+    await seed(page, { settings: { autoStart: true }, state: { running: true, remaining: 1500, lastActive: T0 - 60 * MIN, endAt: T0 - 80 * MIN } });
     await open(page);
     const u = ui(page);
     await expect(u.body).toHaveClass('mode-pomodoro');
+    await expect(u.timer).toHaveText('10:00');
+    await expect(u.cycleText).toHaveText('2 of 4');
     await expect(u.startStop).toHaveText('Start');
-    await expect(u.cycleText).toHaveText('1 of 4');
-    await expect(u.total).toHaveText('Pomodoros this session: 4');
-    // 1st pomodoro ended 180 min ago; S+P+S+P+S+P+L = 105 min later the set ended
-    expect((await stored(page)).state.lastActive).toBe(T0 - 75 * MIN);
   });
 
-  test('auto-start on, ended 14 h ago → replayed set ended 12h+ ago → session reset', async ({ page }) => {
-    await seed(page, { settings: { autoStart: true }, state: ended(14 * 60) });
+  test('closed 13 h ago → session reset', async ({ page }) => {
+    await seed(page, { state: { ...closed(13 * 60, 20), completed: 2, total: 2 } });
     await open(page);
+    await page.clock.runFor(1 * SEC);
     const u = ui(page);
     await expect(u.total).toHaveText('Pomodoros this session: 0');
     await expect(u.timer).toHaveText('25:00');
     await expect(u.startStop).toHaveText('Start');
   });
 
-  test('auto-start off, ended 13 h ago → session reset', async ({ page }) => {
-    await seed(page, { state: { ...ended(13 * 60), completed: 2, total: 2 } });
+  test('closed 11 h ago → kept, paused', async ({ page }) => {
+    await seed(page, { state: { ...closed(11 * 60, 20), completed: 2, total: 2 } });
     await open(page);
-    await expect(ui(page).total).toHaveText('Pomodoros this session: 0');
-    await expect(ui(page).body).toHaveClass('mode-pomodoro');
+    await page.clock.runFor(1 * SEC);
+    await expect(ui(page).total).toHaveText('Pomodoros this session: 2');
+    await expect(ui(page).timer).toHaveText('20:00');
+  });
+
+  test('pressing Start right away (during the open-tab check) wins', async ({ page }) => {
+    await seed(page, { state: closed(60, 20) });
+    await open(page);
+    await ui(page).startStop.click();
+    await page.clock.runFor(1 * SEC);
+    await expect(ui(page).startStop).toHaveText('Stop');
+    await expect(ui(page).timer).toHaveText('19:59');
   });
 });
 
@@ -216,13 +254,13 @@ test.describe('12-hour automatic reset', () => {
     await expect(u.total).toHaveText('Pomodoros this session: 0');
   });
 
-  test('a running timer is never auto-reset', async ({ page }) => {
-    await seed(page, { state: { running: true, endAt: T0 + 10 * MIN, completed: 2, total: 5, lastActive: T0 - 13 * HOUR } });
+  test('the minute check never resets a running timer', async ({ page }) => {
+    await seed(page, { settings: { pomodoro: 180 }, state: { remaining: 180 * 60, completed: 2, total: 5, lastActive: T0 - 11 * HOUR } });
     await open(page);
     const u = ui(page);
+    await u.startStop.click();
+    await page.clock.runFor(2 * HOUR + 30 * MIN);
     await expect(u.startStop).toHaveText('Stop');
-    await expect(u.total).toHaveText('Pomodoros this session: 5');
-    await page.clock.runFor(2 * MIN);
     await expect(u.total).toHaveText('Pomodoros this session: 5');
   });
 });

@@ -19,6 +19,7 @@
   };
   let tickHandle = null;
   let endHandle = null;
+  let reopenPending = false; // reopened with a running timer, deciding what to do
 
   // ---------- DOM ----------
   const $ = (id) => document.getElementById(id);
@@ -54,6 +55,7 @@
 
   // ---------- Persistence ----------
   function save(activeAt = Date.now()) {
+    reopenPending = false; // any real change settles the reopen decision
     state.lastActive = activeAt;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings, state }));
@@ -154,19 +156,96 @@
   function finishStep({ from, silent = false }) {
     stopTicking();
     const { finished, endedAt } = advance(from, Date.now());
+    if (!state.running && Date.now() - endedAt > AUTO_RESET_MS) {
+      resetAll(); // the last step ended 12h+ ago: start a fresh session, no alert
+      return;
+    }
+    if (!silent) {
+      // Saved with the state so other tabs can announce it too (only one will).
+      // `from` (when the step ended) identifies this step end in every tab.
+      state.announcement = { id: from, finished, next: state.mode, autoStarted: state.running };
+    }
     if (state.running) {
       startTicking();
       save();
     } else {
       save(endedAt); // "last stop" is when the last step actually ended
-      if (autoResetIfStale()) return; // that was 12h+ ago: start a fresh session
     }
     render();
-    if (!silent) {
-      playSound();
-      notify(finished, state.mode, state.running);
-    }
+    if (!silent) announce(state.announcement);
   }
+
+  function announce(a) {
+    alertOnce(a.id, () => {
+      playSound();
+      notify(a.finished, a.next, a.autoStarted);
+    });
+  }
+
+  // ---------- Several tabs ----------
+  // Every open tab runs the same timer, so every tab sees each step end.
+  // Only one of them may play the sound / show the notification:
+  //  - a Web Lock named after the step end lets one tab in at a time, and is
+  //    held for a while so tabs arriving moments later are turned away;
+  //  - a shared record of the last announced step end catches tabs that are
+  //    later still (e.g. a frozen background tab waking up).
+  // Tabs the user has clicked in go first: only they are allowed to play sound.
+  const ALERT_KEY = 'pomodoro.lastAlert';
+  const ALERT_LOCK_HOLD_MS = 30 * 1000;
+
+  function claimAlert(id) {
+    try {
+      if (localStorage.getItem(ALERT_KEY) === String(id)) return false;
+      localStorage.setItem(ALERT_KEY, String(id));
+    } catch (e) { /* storage unavailable: just alert */ }
+    return true;
+  }
+
+  function alertOnce(id, fire) {
+    if (!navigator.locks) {
+      if (claimAlert(id)) fire();
+      return;
+    }
+    const tryAlert = () => {
+      navigator.locks.request(`pomodoro-alert-${id}`, { ifAvailable: true }, (lock) => {
+        if (!lock || !claimAlert(id)) return null;
+        fire();
+        return new Promise((resolve) => setTimeout(resolve, ALERT_LOCK_HOLD_MS));
+      }).catch(() => {});
+    };
+    const activated = !navigator.userActivation || navigator.userActivation.hasBeenActive;
+    if (activated) tryAlert();
+    else setTimeout(tryAlert, 1500); // let a tab that can play sound go first
+  }
+
+  // Another tab saved: adopt its state and settings (without saving back).
+  window.addEventListener('storage', (e) => {
+    if (e.key !== STORAGE_KEY || !e.newValue) return;
+    let data;
+    try { data = JSON.parse(e.newValue); } catch (err) { return; }
+    if (!data || !data.settings || !data.state) return;
+    reopenPending = false; // another tab is alive and in charge: follow it
+
+    const settingsChanged = JSON.stringify(data.settings) !== JSON.stringify(settings);
+    const prevAnnouncement = state.announcement && state.announcement.id;
+    const prevEndAt = state.running ? state.endAt : null;
+    settings = { ...DEFAULT_SETTINGS, ...data.settings };
+    if (!SOUNDS[settings.sound]) settings.sound = DEFAULT_SETTINGS.sound;
+    state = { ...state, ...data.state };
+
+    // Restart the countdown only if it was started, stopped or changed; the
+    // running tab's routine saves (every ~5 s) leave it alone.
+    if (!state.running) stopTicking();
+    else if (state.endAt !== prevEndAt) startTicking();
+    if (settingsChanged) fillSettingsForm(); // don't clobber a field being typed in
+    render();
+
+    // Another tab finished a step first. This tab may be the one allowed to
+    // play sound (the user clicked here), so it competes for the alert too.
+    if (state.announcement && state.announcement.id !== prevAnnouncement) {
+      announce(state.announcement);
+    }
+  });
 
   function tick() {
     if (!state.running) return;
@@ -217,7 +296,10 @@
     const title = `${MODE_NAMES[finished]} finished!`;
     let body;
     if (autoStarted) body = `${MODE_NAMES[next]} started.`;
-    else if (next === 'pomodoro') body = 'Break is over — time to focus.';
+    else if (finished === 'long' && settings.autoStart) {
+      // Auto-start never starts a new set: say so, or the user may wait for it.
+      body = 'Set complete. Press Start to begin the next set.';
+    } else if (next === 'pomodoro') body = 'Break is over — time to focus.';
     else body = `Time for a ${MODE_NAMES[next].toLowerCase()}.`;
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     // renotify: with the same tag, a new notification would otherwise
@@ -254,6 +336,21 @@
     if (!audioCtx) audioCtx = new Ctx();
     if (audioCtx.state === 'suspended') audioCtx.resume();
   }
+
+  // Browsers only allow sound after the user has interacted with the page.
+  // Any click, tap or key press (not just Start) prepares it — e.g. after a
+  // reload while the timer is running. Listens until audio is running.
+  const UNLOCK_EVENTS = ['pointerup', 'touchend', 'keydown'];
+  function unlockOnInteraction() {
+    unlockAudio();
+    if (!audioCtx) return;
+    Promise.resolve(audioCtx.state === 'running' || audioCtx.resume()).then(() => {
+      if (audioCtx.state === 'running') {
+        UNLOCK_EVENTS.forEach((t) => document.removeEventListener(t, unlockOnInteraction, true));
+      }
+    }).catch(() => {});
+  }
+  UNLOCK_EVENTS.forEach((t) => document.addEventListener(t, unlockOnInteraction, true));
 
   // One note: an oscillator with a fast attack and an exponential fade.
   function tone(out, { f, type = 'sine', t, peak, attack = 0.01, dur, glideTo }) {
@@ -534,18 +631,74 @@
     e.preventDefault();
     e.returnValue = ''; // required by some browsers to show the dialog
   });
+  // Phones often skip beforeunload; pagehide is the reliable "page is going away".
+  window.addEventListener('pagehide', () => { if (state.running) save(); });
+
+  // ---------- Reopening ----------
+  // When the last tab closes, the timer freezes at that moment. Opening the
+  // site again (or reloading) shows the time that was left and waits for
+  // Start — so the user's first action is a tap/click, which also unlocks
+  // sound. If another tab is still open and running, follow it instead.
+  const channel = 'BroadcastChannel' in window ? new BroadcastChannel('pomodoro') : null;
+  let reopenClosedAt = 0;
+
+  if (channel) {
+    channel.onmessage = (e) => {
+      if (e.data === 'anyone-here?' && !reopenPending) {
+        channel.postMessage('here'); // a live tab (not one that is reopening itself)
+      } else if (e.data === 'here' && reopenPending) {
+        // Another tab is running the timer: follow it.
+        reopenPending = false;
+        load();
+        if (state.running) startTicking();
+        else stopTicking();
+        fillSettingsForm();
+        render();
+      }
+    };
+  }
+
+  // Freeze the timer at the moment the page was closed (the last save).
+  // Steps that had already ended before closing are moved past silently.
+  function pauseAtClose() {
+    const closedAt = Math.min(state.lastActive || Date.now(), Date.now());
+    stopTicking();
+    if (state.endAt <= closedAt) advance(state.endAt, closedAt);
+    if (state.running) {
+      state.remaining = Math.max(0, (state.endAt - closedAt) / 1000);
+      state.running = false;
+      state.endAt = null;
+    }
+    return closedAt;
+  }
+
+  function commitReopen() {
+    save(reopenClosedAt); // "last stop" = when it was closed (12h rule)
+    if (!autoResetIfStale()) render();
+  }
+
+  function reopen() {
+    reopenClosedAt = pauseAtClose(); // shown paused right away (not saved yet)
+    if (!channel) return commitReopen();
+    reopenPending = true;
+    channel.postMessage('anyone-here?');
+    setTimeout(() => { if (reopenPending) commitReopen(); }, 250);
+  }
+
+  // Back/forward cache: the page was frozen, not closed — treat it the same.
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted && state.running) {
+      reopen();
+      fillSettingsForm();
+      render();
+    }
+  });
 
   // ---------- Init ----------
   registerServiceWorker();
   load();
-  if (state.running && currentRemaining() <= 0) {
-    // Step ended while the page was closed: catch up quietly.
-    finishStep({ from: state.endAt, silent: true });
-  } else if (state.running) {
-    startTicking();
-  } else {
-    autoResetIfStale();
-  }
+  if (state.running) reopen();
+  else autoResetIfStale();
   fillSettingsForm();
   render();
 })();
