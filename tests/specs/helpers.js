@@ -8,7 +8,7 @@
 const { test: base, expect } = require('@playwright/test');
 const path = require('path');
 
-const APP_DIR = path.resolve(process.env.APP_DIR || path.join(__dirname, '..', '..', 'src'));
+const APP_DIR = path.resolve(process.env.APP_DIR || path.join(__dirname, '..', '..', 'src', 'public'));
 const KEY = 'pomodoro.v1';
 const T0 = Date.parse('2026-03-02T09:00:00.000Z');
 const SEC = 1000;

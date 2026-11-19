@@ -21,41 +21,57 @@ A simple Pomodoro timer that runs entirely in the browser. Plain HTML, CSS and J
 ## Project structure
 
 ```
-src/                     the app — deploy this folder as-is
-├── index.html
-├── style.css
-├── app.js               all timer logic
-├── sw.js                service worker (notifications on phones)
-├── manifest.webmanifest
-├── logo.svg             favicon and header logo
-├── icon.svg             square app icon (source of the PNGs)
-└── icons/               phone home-screen icons (180, 192, 512 px)
+src/                     the app
+├── Dockerfile           nginx image serving public/
+├── nginx.conf           nginx server config
+└── public/              the static site — deploy this folder as-is
+    ├── index.html
+    ├── style.css
+    ├── app.js           all timer logic
+    ├── sw.js            service worker (notifications on phones)
+    ├── manifest.webmanifest
+    ├── logo.svg         favicon and header logo
+    ├── icon.svg         square app icon (source of the PNGs)
+    └── icons/           phone home-screen icons (180, 192, 512 px)
 tests/                   end-to-end tests (Playwright)
 ├── package.json
 ├── playwright.config.js
-├── server.js            tiny static server for src/
+├── server.js            tiny static server for src/public/
 └── specs/               test files
 ```
 
 ## Running locally
 
-Open `src/index.html` in a browser — that's enough for the timer itself.
+Open `src/public/index.html` in a browser — that's enough for the timer itself.
 
 Notifications through the service worker and "Keep screen on" need a secure context, so for the full feature set serve the folder from `localhost`:
 
 ```sh
-cd src
+cd src/public
 python -m http.server 8000
 # then open http://localhost:8000
 ```
 
-(Any static server works, e.g. `npx serve src`.)
+(Any static server works, e.g. `npx serve src/public`.)
 
 ## Deploying
 
-Upload the contents of `src/` to any static host that serves over `https://` (GitHub Pages, Netlify, Cloudflare Pages, …).
+Upload the contents of `src/public/` to any static host that serves over `https://` (GitHub Pages, Netlify, Cloudflare Pages, …).
 
-On GitHub Pages, either publish with a GitHub Actions workflow that uploads `src/`, or copy `src/` to a `docs/` folder and choose "Deploy from a branch → /docs", since branch deploys only support the repository root or `/docs`.
+On GitHub Pages, either publish with a GitHub Actions workflow that uploads `src/public/`, or copy `src/public/` to a `docs/` folder and choose "Deploy from a branch → /docs", since branch deploys only support the repository root or `/docs`.
+
+### Docker
+
+The image serves the app with nginx:
+
+```sh
+cd src
+docker build -t web-pomodoro .
+docker run -d -p 8080:80 web-pomodoro
+# then open http://localhost:8080
+```
+
+Outside `localhost`, put it behind HTTPS (e.g. a reverse proxy) — the service worker and notifications need a secure context.
 
 ## On phones
 
@@ -75,7 +91,7 @@ npm run test:headed  # watch them in a browser window
 npm run report       # open the HTML report of the last run
 ```
 
-Playwright starts `server.js` automatically, which serves `src/` on `http://127.0.0.1:4173`.
+Playwright starts `server.js` automatically, which serves `src/public/` on `http://127.0.0.1:4173`.
 
 How they work:
 

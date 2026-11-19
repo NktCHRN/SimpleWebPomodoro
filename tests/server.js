@@ -1,11 +1,11 @@
 // Minimal static server for the app under test (no dependencies).
-// Serves ../src (or APP_DIR) on http://127.0.0.1:4173 — localhost is
+// Serves ../src/public (or APP_DIR) on http://127.0.0.1:4173 — localhost is
 // a secure context, so the service worker and wake lock can run.
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(process.env.APP_DIR || path.join(__dirname, '..', 'src'));
+const ROOT = path.resolve(process.env.APP_DIR || path.join(__dirname, '..', 'src', 'public'));
 const PORT = Number(process.env.PORT || 4173);
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
